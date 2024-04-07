@@ -170,10 +170,11 @@ void grad_to_dp(Mat grad, Mat dp)
     }
 }
 
-int main()
+int main(int argc, char **argv)
 {
     // const char *file_path = "Broadway_tower_edit.jpg";
-    const char *file_path = "Lena_512.png";
+    (void)argc;
+    const char *file_path = argv[1];
 
     int width_, height_;
     uint32_t *pixels_ = (uint32_t*)stbi_load(file_path, &width_, &height_, NULL, 4);

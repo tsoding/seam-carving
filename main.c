@@ -237,8 +237,9 @@ int main(int argc, char **argv)
         uint32_t *pixel_row = &IMG_AT(img, y, 0);
         memmove(pixel_row + seam, pixel_row + seam + 1, (img.width - seam - 1)*sizeof(uint32_t));
         for (y = img.height - 2; y >= 0; --y) {
+            int original_seam = seam;
             for (int dx = -1; dx <= 1; ++dx) {
-                int x = seam + dx;
+                int x = original_seam + dx;
                 if (0 <= x && x < img.width && MAT_AT(dp, y, x) < MAT_AT(dp, y, seam)) {
                     seam = x;
                 }

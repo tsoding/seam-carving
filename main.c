@@ -7,6 +7,7 @@
 
 #include "stb_image.h"
 #include "stb_image_write.h"
+#define NOB_IMPLEMENTATION
 #include "nob.h"
 
 typedef struct {
@@ -168,10 +169,28 @@ void grad_to_dp(Mat grad, Mat dp)
     }
 }
 
-int main()
+void usage(const char *program)
 {
-    // const char *file_path = "Broadway_tower_edit.jpg";
-    const char *file_path = "Lena_512.png";
+    fprintf(stderr, "Usage: %s <input> <output>\n", program);
+}
+
+int main(int argc, char **argv)
+{
+    const char *program = nob_shift_args(&argc, &argv);
+
+    if (argc <= 0) {
+        usage(program);
+        fprintf(stderr, "ERROR: no input file is provided\n");
+        return 1;
+    }
+    const char *file_path = nob_shift_args(&argc, &argv);
+
+    if (argc <= 0) {
+        usage(program);
+        fprintf(stderr, "ERROR: no output file is provided\n");
+        return 1;
+    }
+    const char *out_file_path = nob_shift_args(&argc, &argv);
 
     int width_, height_;
     uint32_t *pixels_ = (uint32_t*)stbi_load(file_path, &width_, &height_, NULL, 4);
@@ -232,9 +251,8 @@ int main()
         dp.width -= 1;
     }
 
-    const char *out_file_path = "output.png";
     if (!stbi_write_png(out_file_path, img.width, img.height, 4, img.pixels, img.stride*sizeof(uint32_t))) {
-        fprintf(stderr, "ERROR: could not save file %s", out_file_path);
+        fprintf(stderr, "ERROR: could not save file %s\n", out_file_path);
         return 1;
     }
     printf("OK: generated %s\n", out_file_path);

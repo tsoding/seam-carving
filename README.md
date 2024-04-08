@@ -9,5 +9,6 @@ Content Aware Resizing using [Seam Carving](https://en.m.wikipedia.org/wiki/Seam
 
 ```console
 $ cc -o nob nob.c
-$ ./nob
+$ ./nob Lena_512.png output.png
+$ feh output.png
 ```

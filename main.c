@@ -209,7 +209,9 @@ int main(int argc, char **argv)
     Mat grad = mat_alloc(width_, height_);
     Mat dp = mat_alloc(width_, height_);
 
-    for (int i = 0; i < 350; ++i) {
+    int seams_to_remove = img.width * 2 / 3;
+
+    for (int i = 0; i < seams_to_remove; ++i) {
         printf("Removing seam %d\n", i);
 
         luminance(img, lum);

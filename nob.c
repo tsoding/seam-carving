@@ -40,18 +40,14 @@ int main(int argc, char **argv)
 
     const char *main_input = "main.c";
     const char *main_output = "./build/main";
-    if (nob_needs_rebuild1(main_output, main_input)) {
-        cmd.count = 0;
-        cc(&cmd);
-        nob_cmd_append(&cmd, "-o", main_output);
-        nob_cmd_append(&cmd, main_input);
-        nob_cmd_append(&cmd, "./build/stb_image.o");
-        nob_cmd_append(&cmd, "./build/stb_image_write.o");
-        nob_cmd_append(&cmd, "-lm");
-        if (!nob_cmd_run_sync(cmd)) return 1;
-    } else {
-        nob_log(NOB_INFO, "%s is up to date", main_output);
-    }
+    cmd.count = 0;
+    cc(&cmd);
+    nob_cmd_append(&cmd, "-o", main_output);
+    nob_cmd_append(&cmd, main_input);
+    nob_cmd_append(&cmd, "./build/stb_image.o");
+    nob_cmd_append(&cmd, "./build/stb_image_write.o");
+    nob_cmd_append(&cmd, "-lm");
+    if (!nob_cmd_run_sync(cmd)) return 1;
 
     cmd.count = 0;
     nob_cmd_append(&cmd, main_output);

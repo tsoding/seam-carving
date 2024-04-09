@@ -24,7 +24,7 @@ typedef struct {
 
 #define MAT_AT(mat, row, col) (mat).items[(row)*(mat).stride + (col)]
 
-Mat mat_alloc(int width, int height)
+static Mat mat_alloc(int width, int height)
 {
     Mat mat = {0};
     mat.items = malloc(sizeof(float)*width*height);
@@ -36,7 +36,7 @@ Mat mat_alloc(int width, int height)
 }
 
 // https://stackoverflow.com/questions/596216/formula-to-determine-perceived-brightness-of-rgb-color
-float rgb_to_lum(uint32_t rgb)
+static float rgb_to_lum(uint32_t rgb)
 {
     float r = ((rgb >> (8*0)) & 0xFF)/255.0;
     float g = ((rgb >> (8*1)) & 0xFF)/255.0;
@@ -44,7 +44,7 @@ float rgb_to_lum(uint32_t rgb)
     return 0.2126*r + 0.7152*g + 0.0722*b;
 }
 
-void min_and_max(Mat mat, float *mn, float *mx)
+static void min_and_max(Mat mat, float *mn, float *mx)
 {
     *mn = FLT_MAX;
     *mx = FLT_MIN;
@@ -59,14 +59,14 @@ void min_and_max(Mat mat, float *mn, float *mx)
 
 
 #if 0
-void analyze_min_and_max(const char *prompt, Mat mat)
+static void analyze_min_and_max(const char *prompt, Mat mat)
 {
     float mn, mx;
     min_and_max(mat, &mn, &mx);
     printf("%s: min = %f, max = %f\n", prompt, mn, mx);
 }
 
-bool dump_mat(const char *file_path, Mat mat)
+static bool dump_mat(const char *file_path, Mat mat)
 {
     float mn, mx;
     min_and_max(mat, &mn, &mx);
@@ -102,7 +102,7 @@ defer:
 #define analyze_min_and_max(...)
 #endif
 
-void luminance(Img img, Mat lum)
+static void luminance(Img img, Mat lum)
 {
     assert(img.width == lum.width);
     assert(img.height == lum.height);
@@ -113,11 +113,8 @@ void luminance(Img img, Mat lum)
     }
 }
 
-void sobel_filter(Mat mat, Mat grad)
+static float sobel_filter_at(Mat mat, int cx, int cy)
 {
-    assert(mat.width == grad.width);
-    assert(mat.height == grad.height);
-
     static float gx[3][3] = {
         {1.0, 0.0, -1.0},
         {2.0, 0.0, -2.0},
@@ -130,25 +127,33 @@ void sobel_filter(Mat mat, Mat grad)
         {-1.0, -2.0, -1.0},
     };
 
+    float sx = 0.0;
+    float sy = 0.0;
+    for (int dy = -1; dy <= 1; ++dy) {
+        for (int dx = -1; dx <= 1; ++dx) {
+            int x = cx + dx;
+            int y = cy + dy;
+            float c = 0 <= x && x < mat.width && 0 <= y && y < mat.height ? MAT_AT(mat, y, x) : 0.0;
+            sx += c*gx[dy + 1][dx + 1];
+            sy += c*gy[dy + 1][dx + 1];
+        }
+    }
+    return sqrtf(sx*sx + sy*sy);
+}
+
+static void sobel_filter(Mat mat, Mat grad)
+{
+    assert(mat.width == grad.width);
+    assert(mat.height == grad.height);
+
     for (int cy = 0; cy < mat.height; ++cy) {
         for (int cx = 0; cx < mat.width; ++cx) {
-            float sx = 0.0;
-            float sy = 0.0;
-            for (int dy = -1; dy <= 1; ++dy) {
-                for (int dx = -1; dx <= 1; ++dx) {
-                    int x = cx + dx;
-                    int y = cy + dy;
-                    float c = 0 <= x && x < mat.width && 0 <= y && y < mat.height ? MAT_AT(mat, y, x) : 0.0;
-                    sx += c*gx[dy + 1][dx + 1];
-                    sy += c*gy[dy + 1][dx + 1];
-                }
-            }
-            MAT_AT(grad, cy, cx) = sqrtf(sx*sx + sy*sy);
+            MAT_AT(grad, cy, cx) = sobel_filter_at(mat, cx, cy);
         }
     }
 }
 
-void grad_to_dp(Mat grad, Mat dp)
+static void grad_to_dp(Mat grad, Mat dp)
 {
     assert(grad.width == dp.width);
     assert(grad.height == dp.height);
@@ -169,9 +174,42 @@ void grad_to_dp(Mat grad, Mat dp)
     }
 }
 
-void usage(const char *program)
+static void usage(const char *program)
 {
     fprintf(stderr, "Usage: %s <input> <output>\n", program);
+}
+
+static void img_remove_column_at_row(Img img, int row, int column)
+{
+    uint32_t *pixel_row = &IMG_AT(img, row, 0);
+    memmove(pixel_row + column, pixel_row + column + 1, (img.width - column - 1)*sizeof(uint32_t));
+}
+
+static void mat_remove_column_at_row(Mat mat, int row, int column)
+{
+    float *pixel_row = &MAT_AT(mat, row, 0);
+    memmove(pixel_row + column, pixel_row + column + 1, (mat.width - column - 1)*sizeof(float));
+}
+
+static void compute_seam(Mat dp, int *seam)
+{
+    int y = dp.height - 1;
+    seam[y] = 0;
+    for (int x = 1; x < dp.width; ++x) {
+        if (MAT_AT(dp, y, x) < MAT_AT(dp, y, seam[y])) {
+            seam[y] = x;
+        }
+    }
+
+    for (y = dp.height - 2; y >= 0; --y) {
+        seam[y] = seam[y+1];
+        for (int dx = -1; dx <= 1; ++dx) {
+            int x = seam[y+1] + dx;
+            if (0 <= x && x < dp.width && MAT_AT(dp, y, x) < MAT_AT(dp, y, seam[y])) {
+                seam[y] = x;
+            }
+        }
+    }
 }
 
 int main(int argc, char **argv)
@@ -208,50 +246,57 @@ int main(int argc, char **argv)
     Mat lum = mat_alloc(width_, height_);
     Mat grad = mat_alloc(width_, height_);
     Mat dp = mat_alloc(width_, height_);
+    int *seam = malloc(sizeof(*seam)*height_);
 
     int seams_to_remove = img.width * 2 / 3;
 
+    luminance(img, lum);
+    analyze_min_and_max("lum", lum);
+    dump_mat("lum.png", lum);
+
+    sobel_filter(lum, grad);
+    analyze_min_and_max("grad", grad);
+    dump_mat("grad.png", grad);
+
     for (int i = 0; i < seams_to_remove; ++i) {
-        printf("Removing seam %d\n", i);
-
-        luminance(img, lum);
-        analyze_min_and_max("lum", lum);
-        dump_mat("lum.png", lum);
-
-        sobel_filter(lum, grad);
-        analyze_min_and_max("grad", grad);
-        dump_mat("grad.png", grad);
-
         grad_to_dp(grad, dp);
         analyze_min_and_max("dp", dp);
         dump_mat("dp.png", dp);
 
-        int y = img.height - 1;
-        int seam = 0;
-        for (int x = 1; x < img.width; ++x) {
-            if (MAT_AT(dp, y, x) < MAT_AT(dp, y, seam)) {
-                seam = x;
+        compute_seam(dp, seam);
+        for (int cy = 0; cy < grad.height; ++cy) {
+            int cx = seam[cy];
+            for (int dy = -1; dy <= 1; ++dy) {
+                for (int dx = -1; dx <= 1; ++dx) {
+                    int x = cx + dx;
+                    int y = cy + dy;
+                    if (0 <= x && x < grad.width && 0 <= y && y < grad.height) {
+                        *(uint32_t*)&MAT_AT(grad, y, x) = 0xFFFFFFFF;
+                    }
+                }
             }
         }
 
-        uint32_t *pixel_row = &IMG_AT(img, y, 0);
-        memmove(pixel_row + seam, pixel_row + seam + 1, (img.width - seam - 1)*sizeof(uint32_t));
-        for (y = img.height - 2; y >= 0; --y) {
-            int original_seam = seam;
-            for (int dx = -1; dx <= 1; ++dx) {
-                int x = original_seam + dx;
-                if (0 <= x && x < img.width && MAT_AT(dp, y, x) < MAT_AT(dp, y, seam)) {
-                    seam = x;
-                }
-            }
-            pixel_row = &IMG_AT(img, y, 0);
-            memmove(pixel_row + seam, pixel_row + seam + 1, (img.width - seam - 1)*sizeof(uint32_t));
+        for (int cy = 0; cy < img.height; ++cy) {
+            int cx = seam[cy];
+            img_remove_column_at_row(img, cy, cx);
+            mat_remove_column_at_row(lum, cy, cx);
+            mat_remove_column_at_row(grad, cy, cx);
         }
 
         img.width -= 1;
         lum.width -= 1;
         grad.width -= 1;
         dp.width -= 1;
+
+        for (int cy = 0; cy < grad.height; ++cy) {
+            for (int cx = seam[cy]; cx < grad.width && *(uint32_t*)&MAT_AT(grad, cy, cx) == 0xFFFFFFFF; ++cx) {
+                MAT_AT(grad, cy, cx) = sobel_filter_at(lum, cx, cy);
+            }
+            for (int cx = seam[cy] - 1; cx >= 0 && *(uint32_t*)&MAT_AT(grad, cy, cx) == 0xFFFFFFFF; --cx) {
+                MAT_AT(grad, cy, cx) = sobel_filter_at(lum, cx, cy);
+            }
+        }
     }
 
     if (!stbi_write_png(out_file_path, img.width, img.height, 4, img.pixels, img.stride*sizeof(uint32_t))) {

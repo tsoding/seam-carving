@@ -212,6 +212,22 @@ static void compute_seam(Mat dp, int *seam)
     }
 }
 
+void markout_sobel_patches(Mat grad, int *seam)
+{
+    for (int cy = 0; cy < grad.height; ++cy) {
+        int cx = seam[cy];
+        for (int dy = -1; dy <= 1; ++dy) {
+            for (int dx = -1; dx <= 1; ++dx) {
+                int x = cx + dx;
+                int y = cy + dy;
+                if (0 <= x && x < grad.width && 0 <= y && y < grad.height) {
+                    *(uint32_t*)&MAT_AT(grad, y, x) = 0xFFFFFFFF;
+                }
+            }
+        }
+    }
+}
+
 int main(int argc, char **argv)
 {
     const char *program = nob_shift_args(&argc, &argv);
@@ -264,18 +280,7 @@ int main(int argc, char **argv)
         dump_mat("dp.png", dp);
 
         compute_seam(dp, seam);
-        for (int cy = 0; cy < grad.height; ++cy) {
-            int cx = seam[cy];
-            for (int dy = -1; dy <= 1; ++dy) {
-                for (int dx = -1; dx <= 1; ++dx) {
-                    int x = cx + dx;
-                    int y = cy + dy;
-                    if (0 <= x && x < grad.width && 0 <= y && y < grad.height) {
-                        *(uint32_t*)&MAT_AT(grad, y, x) = 0xFFFFFFFF;
-                    }
-                }
-            }
-        }
+        markout_sobel_patches(grad, seam);
 
         for (int cy = 0; cy < img.height; ++cy) {
             int cx = seam[cy];

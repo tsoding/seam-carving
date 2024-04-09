@@ -1,5 +1,17 @@
+#include <assert.h>
+
 #define NOB_IMPLEMENTATION
 #include "nob.h"
+
+#include <time.h>
+
+double get_time(void)
+{
+    struct timespec tp = {};
+    int ret = clock_gettime(CLOCK_MONOTONIC, &tp);
+    assert(ret == 0);
+    return tp.tv_sec + tp.tv_nsec*0.000000001;
+}
 
 void cc(Nob_Cmd *cmd)
 {
@@ -52,7 +64,9 @@ int main(int argc, char **argv)
     cmd.count = 0;
     nob_cmd_append(&cmd, main_output);
     nob_da_append_many(&cmd, argv, argc);
+    double begin = get_time();
     if (!nob_cmd_run_sync(cmd)) return 1;
+    nob_log(NOB_INFO, "Resizing took %lfsecs", get_time() - begin);
 
     return 0;
 }

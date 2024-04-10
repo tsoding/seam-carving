@@ -105,19 +105,16 @@ static void grad_to_dp(Mat grad, Mat dp)
     assert(grad.width == dp.width);
     assert(grad.height == dp.height);
 
-    for (int x = 0; x < grad.width; ++x) {
-        MAT_AT(dp, 0, x) = MAT_AT(grad, 0, x);
-    }
+    memcpy(dp.items, grad.items, sizeof(float)*grad.width*1);
+
     for (int y = 1; y < grad.height; ++y) {
-        for (int cx = 0; cx < grad.width; ++cx) {
+        MAT_AT(dp, y, 0) = FLT_MAX;
+        for (int cx = 1; cx < grad.width - 1; ++cx) {
             float m = FLT_MAX;
-            for (int dx = -1; dx <= 1; ++dx) {
-                int x = cx + dx;
-                float value = 0 <= x && x < grad.width ? MAT_AT(dp, y - 1, x) : FLT_MAX;
-                if (value < m) m = value;
-            }
+            for (int x = cx - 1; x <= cx + 1; ++x) m = fmin(m, MAT_AT(dp, y - 1, x));
             MAT_AT(dp, y, cx) = MAT_AT(grad, y, cx) + m;
         }
+        MAT_AT(dp, y, grad.width - 1) = FLT_MAX;
     }
 }
 
@@ -154,22 +151,6 @@ static void compute_seam(Mat dp, int *seam)
             int x = seam[y+1] + dx;
             if (0 <= x && x < dp.width && MAT_AT(dp, y, x) < MAT_AT(dp, y, seam[y])) {
                 seam[y] = x;
-            }
-        }
-    }
-}
-
-void markout_sobel_patches(Mat grad, int *seam)
-{
-    for (int cy = 0; cy < grad.height; ++cy) {
-        int cx = seam[cy];
-        for (int dy = -1; dy <= 1; ++dy) {
-            for (int dx = -1; dx <= 1; ++dx) {
-                int x = cx + dx;
-                int y = cy + dy;
-                if (MAT_WITHIN(grad, y, x)) {
-                    *(uint32_t*)&MAT_AT(grad, y, x) = 0xFFFFFFFF;
-                }
             }
         }
     }
@@ -219,7 +200,6 @@ int main(int argc, char **argv)
     for (int i = 0; i < seams_to_remove; ++i) {
         grad_to_dp(grad, dp);
         compute_seam(dp, seam);
-        markout_sobel_patches(grad, seam);
 
         for (int cy = 0; cy < img.height; ++cy) {
             int cx = seam[cy];
@@ -234,11 +214,11 @@ int main(int argc, char **argv)
         dp.width -= 1;
 
         for (int cy = 0; cy < grad.height; ++cy) {
-            for (int cx = seam[cy]; cx < grad.width && *(uint32_t*)&MAT_AT(grad, cy, cx) == 0xFFFFFFFF; ++cx) {
-                MAT_AT(grad, cy, cx) = sobel_filter_at(lum, cx, cy);
-            }
-            for (int cx = seam[cy] - 1; cx >= 0 && *(uint32_t*)&MAT_AT(grad, cy, cx) == 0xFFFFFFFF; --cx) {
-                MAT_AT(grad, cy, cx) = sobel_filter_at(lum, cx, cy);
+            for (int dx =-2; dx < 2; ++dx) {
+                int cx = seam[cy] + dx;
+                if (cx >= 0 && cx < img.width) { 
+                    MAT_AT(grad, cy, cx) = sobel_filter_at(lum, cx, cy);
+                }
             }
         }
     }

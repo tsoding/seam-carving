@@ -46,64 +46,6 @@ static float rgb_to_lum(uint32_t rgb)
     return 0.2126*r + 0.7152*g + 0.0722*b;
 }
 
-static void min_and_max(Mat mat, float *mn, float *mx)
-{
-    *mn = FLT_MAX;
-    *mx = FLT_MIN;
-    for (int y = 0; y < mat.height; ++y) {
-        for (int x = 0; x < mat.width; ++x) {
-            float value = MAT_AT(mat, y, x);
-            if (value < *mn) *mn = value;
-            if (value > *mx) *mx = value;
-        }
-    }
-}
-
-
-#if 0
-static void analyze_min_and_max(const char *prompt, Mat mat)
-{
-    float mn, mx;
-    min_and_max(mat, &mn, &mx);
-    printf("%s: min = %f, max = %f\n", prompt, mn, mx);
-}
-
-static bool dump_mat(const char *file_path, Mat mat)
-{
-    float mn, mx;
-    min_and_max(mat, &mn, &mx);
-
-    uint32_t *pixels = NULL;
-    bool result = true;
-
-    pixels = malloc(sizeof(*pixels)*mat.width*mat.height);
-    assert(pixels != NULL);
-
-    for (int y = 0; y < mat.height; ++y) {
-        for (int x = 0; x < mat.width; ++x) {
-            int i = y*mat.width + x;
-            float t = (MAT_AT(mat, y, x) - mn)/(mx - mn);
-            uint32_t value = 255*t;
-            pixels[i] = 0xFF000000|(value<<(8*2))|(value<<(8*1))|(value<<(8*0));
-        }
-    }
-
-    if (!stbi_write_png(file_path, mat.width, mat.height, 4, pixels, mat.width*sizeof(*pixels))) {
-        fprintf(stderr, "ERROR: could not save file %s", file_path);
-        nob_return_defer(false);
-    }
-
-    printf("OK: generated %s\n", file_path);
-
-defer:
-    free(pixels);
-    return result;
-}
-#else
-#define dump_mat(...)
-#define analyze_min_and_max(...)
-#endif
-
 static void luminance(Img img, Mat lum)
 {
     assert(img.width == lum.width);
@@ -269,18 +211,10 @@ int main(int argc, char **argv)
     int seams_to_remove = img.width * 2 / 3;
 
     luminance(img, lum);
-    analyze_min_and_max("lum", lum);
-    dump_mat("lum.png", lum);
-
     sobel_filter(lum, grad);
-    analyze_min_and_max("grad", grad);
-    dump_mat("grad.png", grad);
 
     for (int i = 0; i < seams_to_remove; ++i) {
         grad_to_dp(grad, dp);
-        analyze_min_and_max("dp", dp);
-        dump_mat("dp.png", dp);
-
         compute_seam(dp, seam);
         markout_sobel_patches(grad, seam);
 

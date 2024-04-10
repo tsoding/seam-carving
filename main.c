@@ -214,7 +214,7 @@ int main(int argc, char **argv)
         dp.width -= 1;
 
         for (int cy = 0; cy < grad.height; ++cy) {
-            for (int dx =-2; dx < 2; ++dx) {
+            for (int dx =-2; dx < 1; ++dx) {
                 int cx = seam[cy] + dx;
                 if (cx >= 0 && cx < img.width) { 
                     MAT_AT(grad, cy, cx) = sobel_filter_at(lum, cx, cy);

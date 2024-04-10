@@ -83,7 +83,7 @@ static float sobel_filter_at(Mat mat, int cx, int cy)
         }
     }
     // NOTE: Apparently sqrtf does not make that much difference perceptually.
-    // Yet it is slightly faster.
+    // Yet it is slightly faster without it.
     //return sqrtf(sx*sx + sy*sy);
     return sx*sx + sy*sy;
 }

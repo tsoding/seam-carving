@@ -82,7 +82,10 @@ static float sobel_filter_at(Mat mat, int cx, int cy)
             sy += c*gy[dy + 1][dx + 1];
         }
     }
-    return sqrtf(sx*sx + sy*sy);
+    // NOTE: Apparently sqrtf does not make that much difference perceptually.
+    // Yet it is slightly faster.
+    //return sqrtf(sx*sx + sy*sy);
+    return sx*sx + sy*sy;
 }
 
 static void sobel_filter(Mat mat, Mat grad)

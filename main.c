@@ -138,16 +138,12 @@ static void mat_remove_column_at_row(Mat mat, int row, int column)
     memmove(pixel_row + column, pixel_row + column + 1, (mat.width - column - 1)*sizeof(float));
 }
 
-static void compute_seam(Mat dp, int *seam)
+static float compute_seam_x(Mat dp, int *seam, int x0)
 {
+    float e = 0;
     int y = dp.height - 1;
-    seam[y] = 0;
-    for (int x = 1; x < dp.width; ++x) {
-        if (MAT_AT(dp, y, x) < MAT_AT(dp, y, seam[y])) {
-            seam[y] = x;
-        }
-    }
-
+    seam[y] = x0;
+ 
     for (y = dp.height - 2; y >= 0; --y) {
         seam[y] = seam[y+1];
         for (int dx = -1; dx <= 1; ++dx) {
@@ -156,7 +152,24 @@ static void compute_seam(Mat dp, int *seam)
                 seam[y] = x;
             }
         }
+        e += MAT_AT(dp, y, seam[y]);
     }
+    return e;
+}
+
+static void compute_seam(Mat dp, int *seam)
+{
+    int x0 = 1;
+    float e0 = compute_seam_x(dp, seam, x0);
+
+    int y = dp.height - 1;
+    seam[y] = 0;
+    for (int x = 2; x < dp.width; ++x) {
+        float e = compute_seam_x(dp, seam, x);
+        if (e < e0){ e0 = e; x0 = x; }
+    }
+
+    compute_seam_x(dp, seam, x0);
 }
 
 void markout_sobel_patches(Mat grad, int *seam)

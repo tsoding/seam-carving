@@ -23,6 +23,8 @@ typedef struct {
 } Mat;
 
 #define MAT_AT(mat, row, col) (mat).items[(row)*(mat).stride + (col)]
+#define MAT_WITHIN(mat, row, col) \
+    (0 <= (col) && (col) < (mat).width && 0 <= (row) && (row) < (mat).height)
 
 static Mat mat_alloc(int width, int height)
 {
@@ -133,7 +135,7 @@ static float sobel_filter_at(Mat mat, int cx, int cy)
         for (int dx = -1; dx <= 1; ++dx) {
             int x = cx + dx;
             int y = cy + dy;
-            float c = 0 <= x && x < mat.width && 0 <= y && y < mat.height ? MAT_AT(mat, y, x) : 0.0;
+            float c = MAT_WITHIN(mat, y, x) ? MAT_AT(mat, y, x) : 0.0;
             sx += c*gx[dy + 1][dx + 1];
             sy += c*gy[dy + 1][dx + 1];
         }
@@ -220,7 +222,7 @@ void markout_sobel_patches(Mat grad, int *seam)
             for (int dx = -1; dx <= 1; ++dx) {
                 int x = cx + dx;
                 int y = cy + dy;
-                if (0 <= x && x < grad.width && 0 <= y && y < grad.height) {
+                if (MAT_WITHIN(grad, y, x)) {
                     *(uint32_t*)&MAT_AT(grad, y, x) = 0xFFFFFFFF;
                 }
             }

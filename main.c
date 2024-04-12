@@ -9,6 +9,7 @@
 #include "stb_image_write.h"
 #define NOB_IMPLEMENTATION
 #include "nob.h"
+#include <omp.h>
 
 typedef struct {
     uint32_t *pixels;
@@ -46,10 +47,11 @@ static float rgb_to_lum(uint32_t rgb)
     return 0.2126*r + 0.7152*g + 0.0722*b;
 }
 
-static void luminance(Img img, Mat lum)
+static inline void luminance(Img img, Mat lum)
 {
     assert(img.width == lum.width);
     assert(img.height == lum.height);
+    #pragma omp simd collapse(2)
     for (int y = 0; y < lum.height; ++y) {
         for (int x = 0; x < lum.width; ++x) {
             MAT_AT(lum, y, x) = rgb_to_lum(IMG_AT(img, y, x));
@@ -73,13 +75,25 @@ static float sobel_filter_at(Mat mat, int cx, int cy)
 
     float sx = 0.0;
     float sy = 0.0;
-    for (int dy = -1; dy <= 1; ++dy) {
-        for (int dx = -1; dx <= 1; ++dx) {
-            int x = cx + dx;
-            int y = cy + dy;
-            float c = MAT_WITHIN(mat, y, x) ? MAT_AT(mat, y, x) : 0.0;
-            sx += c*gx[dy + 1][dx + 1];
-            sy += c*gy[dy + 1][dx + 1];
+    if (cx == 0 || cy == 0 || cx == mat.width - 1 || cy == mat.height - 1) {
+        for (int dy = -1; dy <= 1; ++dy) {
+            for (int dx = -1; dx <= 1; ++dx) {
+                int x = cx + dx;
+                int y = cy + dy;
+                float c = MAT_WITHIN(mat, y, x) ? MAT_AT(mat, y, x) : 0.0;
+                sx += c*gx[dy + 1][dx + 1];
+                sy += c*gy[dy + 1][dx + 1];
+            }
+        }
+    } else {
+        for (int dy = -1; dy <= 1; ++dy) {
+            for (int dx = -1; dx <= 1; ++dx) {
+                int x = cx + dx;
+                int y = cy + dy;
+                float c = MAT_AT(mat, y, x);
+                sx += c*gx[dy + 1][dx + 1];
+                sy += c*gy[dy + 1][dx + 1];
+            }
         }
     }
     // NOTE: Apparently sqrtf does not make that much difference perceptually.
@@ -93,6 +107,7 @@ static void sobel_filter(Mat mat, Mat grad)
     assert(mat.width == grad.width);
     assert(mat.height == grad.height);
 
+    // #pragma omp simd collapse(2)
     for (int cy = 0; cy < mat.height; ++cy) {
         for (int cx = 0; cx < mat.width; ++cx) {
             MAT_AT(grad, cy, cx) = sobel_filter_at(mat, cx, cy);
@@ -100,24 +115,22 @@ static void sobel_filter(Mat mat, Mat grad)
     }
 }
 
-static void grad_to_dp(Mat grad, Mat dp)
+static inline void grad_to_dp_full(Mat grad, Mat dp)
 {
     assert(grad.width == dp.width);
     assert(grad.height == dp.height);
 
-    for (int x = 0; x < grad.width; ++x) {
-        MAT_AT(dp, 0, x) = MAT_AT(grad, 0, x);
-    }
+    // no need to do this every time
+    // memcpy(dp.items, grad.items, sizeof(float)*grad.width*1);
+    #pragma omp simd collapse(2)
     for (int y = 1; y < grad.height; ++y) {
-        for (int cx = 0; cx < grad.width; ++cx) {
+        // MAT_AT(dp, y, 0) = FLT_MAX;
+        for (int cx = 1; cx < grad.width - 1; ++cx) {
             float m = FLT_MAX;
-            for (int dx = -1; dx <= 1; ++dx) {
-                int x = cx + dx;
-                float value = 0 <= x && x < grad.width ? MAT_AT(dp, y - 1, x) : FLT_MAX;
-                if (value < m) m = value;
-            }
+            for (int x = cx - 1; x <= cx + 1; ++x) m = fmin(m, MAT_AT(dp, y - 1, x));
             MAT_AT(dp, y, cx) = MAT_AT(grad, y, cx) + m;
         }
+        MAT_AT(dp, y, grad.width - 1) = FLT_MAX;
     }
 }
 
@@ -126,17 +139,6 @@ static void usage(const char *program)
     fprintf(stderr, "Usage: %s <input> <output>\n", program);
 }
 
-static void img_remove_column_at_row(Img img, int row, int column)
-{
-    uint32_t *pixel_row = &IMG_AT(img, row, 0);
-    memmove(pixel_row + column, pixel_row + column + 1, (img.width - column - 1)*sizeof(uint32_t));
-}
-
-static void mat_remove_column_at_row(Mat mat, int row, int column)
-{
-    float *pixel_row = &MAT_AT(mat, row, 0);
-    memmove(pixel_row + column, pixel_row + column + 1, (mat.width - column - 1)*sizeof(float));
-}
 
 static void compute_seam(Mat dp, int *seam)
 {
@@ -159,21 +161,8 @@ static void compute_seam(Mat dp, int *seam)
     }
 }
 
-void markout_sobel_patches(Mat grad, int *seam)
-{
-    for (int cy = 0; cy < grad.height; ++cy) {
-        int cx = seam[cy];
-        for (int dy = -1; dy <= 1; ++dy) {
-            for (int dx = -1; dx <= 1; ++dx) {
-                int x = cx + dx;
-                int y = cy + dy;
-                if (MAT_WITHIN(grad, y, x)) {
-                    *(uint32_t*)&MAT_AT(grad, y, x) = 0xFFFFFFFF;
-                }
-            }
-        }
-    }
-}
+#define min(a,b) ((a) < (b) ? (a) : (b))
+#define max(a,b) ((a) > (b) ? (a) : (b))
 
 int main(int argc, char **argv)
 {
@@ -215,17 +204,24 @@ int main(int argc, char **argv)
 
     luminance(img, lum);
     sobel_filter(lum, grad);
+    memcpy(dp.items, grad.items, sizeof(float)*grad.width*1);
+    for (int y = 1; y < grad.height; ++y) { MAT_AT(dp, y, 0) = FLT_MAX; }
+    grad_to_dp_full(grad, dp);
 
     for (int i = 0; i < seams_to_remove; ++i) {
-        grad_to_dp(grad, dp);
         compute_seam(dp, seam);
-        markout_sobel_patches(grad, seam);
 
-        for (int cy = 0; cy < img.height; ++cy) {
-            int cx = seam[cy];
-            img_remove_column_at_row(img, cy, cx);
-            mat_remove_column_at_row(lum, cy, cx);
-            mat_remove_column_at_row(grad, cy, cx);
+        #pragma omp parallel for
+        for (int y = 0; y < img.height; ++y) {
+            uint32_t *pos1 = &IMG_AT(img, y, seam[y]);
+            // memcpy is faster than memmove, and correct in this case, we are moving by 1 pixel backward
+            memcpy(pos1, pos1 + 1, (img.width - seam[y] - 1)*sizeof(uint32_t));
+            
+            float *pos2 = &MAT_AT(lum, y, seam[y]);
+            memcpy(pos2, pos2 + 1, (lum.width - seam[y] - 1)*sizeof(float));
+
+            float *pos3 = &MAT_AT(grad, y, seam[y]);
+            memcpy(pos3, pos3 + 1, (grad.width - seam[y] - 1)*sizeof(float));
         }
 
         img.width -= 1;
@@ -233,13 +229,21 @@ int main(int argc, char **argv)
         grad.width -= 1;
         dp.width -= 1;
 
-        for (int cy = 0; cy < grad.height; ++cy) {
-            for (int cx = seam[cy]; cx < grad.width && *(uint32_t*)&MAT_AT(grad, cy, cx) == 0xFFFFFFFF; ++cx) {
+        for (int cy = 1; cy < grad.height; ++cy) {
+            for (int dx =-2; dx < 1; ++dx) {
+                int cx = seam[cy] + dx;
                 MAT_AT(grad, cy, cx) = sobel_filter_at(lum, cx, cy);
             }
-            for (int cx = seam[cy] - 1; cx >= 0 && *(uint32_t*)&MAT_AT(grad, cy, cx) == 0xFFFFFFFF; --cx) {
-                MAT_AT(grad, cy, cx) = sobel_filter_at(lum, cx, cy);
+        }
+
+        #pragma omp parallel for
+        for (int y = 0; y < grad.height-1; ++y) {
+            for (int cx = max(seam[0]-1-y, 0); cx < min(seam[0] + y, grad.width); ++cx) {
+                float m = FLT_MAX;
+                for (int x = cx - 1; x <= cx + 1; ++x) m = fmin(m, MAT_AT(dp, y, x));
+                MAT_AT(dp, y + 1, cx) = MAT_AT(grad, y + 1, cx) + m;
             }
+            MAT_AT(dp, y + 1, grad.width - 1) = FLT_MAX;
         }
     }
 

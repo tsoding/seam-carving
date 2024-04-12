@@ -220,7 +220,7 @@ int main(int argc, char **argv)
             const int low_bound = seam[cy] - 2;
             const int high_bound = seam[cy] + 2;
             int cx = low_bound >= 0 ? low_bound : 0;
-            const int max = high_bound < grad.height ? high_bound : grad.height;
+            const int max = high_bound < grad.width ? high_bound : grad.width;
             for (;cx < max; ++cx) {
                 MAT_AT(grad, cy, cx) = sobel_filter_at(lum, cx, cy);
             }

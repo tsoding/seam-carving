@@ -17,7 +17,7 @@ void cc(Nob_Cmd *cmd)
 {
     nob_cmd_append(cmd, "cc");
     nob_cmd_append(cmd, "-Wall", "-Wextra", "-ggdb");
-    nob_cmd_append(cmd, "-O3");
+    nob_cmd_append(cmd, "-O3", "-fopenmp-simd", "-fopenmp");
 }
 
 bool rebuild_stb_if_needed(Nob_Cmd *cmd, const char *implementation, const char *input, const char *output)

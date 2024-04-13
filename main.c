@@ -100,6 +100,25 @@ static void sobel_filter(Mat mat, Mat grad)
     }
 }
 
+static float min_of_2(float *mat_row)
+{
+    float a = mat_row[0];
+    float b = mat_row[1];
+    return a < b ? a : b;
+}
+
+static float min_of_3(float *mat_row)
+{
+    float a = mat_row[0];
+    float b = mat_row[1];
+    float c = mat_row[2];
+
+    float m = a;
+    if (b < m) m = b;
+    if (c < m) m = c;
+    return m;
+}
+
 static void grad_to_dp(Mat grad, Mat dp)
 {
     assert(grad.width == dp.width);
@@ -111,11 +130,10 @@ static void grad_to_dp(Mat grad, Mat dp)
     for (int y = 1; y < grad.height; ++y) {
         for (int cx = 0; cx < grad.width; ++cx) {
             float m = FLT_MAX;
-            for (int dx = -1; dx <= 1; ++dx) {
-                int x = cx + dx;
-                float value = 0 <= x && x < grad.width ? MAT_AT(dp, y - 1, x) : FLT_MAX;
-                if (value < m) m = value;
-            }
+            if (false);
+            else if (cx - 1 < 0)           m = min_of_2(&MAT_AT(dp, y - 1, cx));
+            else if (cx + 1 >= grad.width) m = min_of_2(&MAT_AT(dp, y - 1, cx - 1));
+            else                           m = min_of_3(&MAT_AT(dp, y - 1, cx - 1));
             MAT_AT(dp, y, cx) = MAT_AT(grad, y, cx) + m;
         }
     }

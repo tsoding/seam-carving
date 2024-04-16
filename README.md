@@ -4,6 +4,7 @@ Content Aware Resizing using [Seam Carving](https://en.m.wikipedia.org/wiki/Seam
 
 ![Lena_512](./images/Lena_512.png)
 ![Lena_162](./images/Lena_162.png)
+![Lena_512_to_162](./images/seams.gif)
 
 ## Quick Start
 

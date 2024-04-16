@@ -10,6 +10,18 @@
 #define NOB_IMPLEMENTATION
 #include "nob.h"
 
+#define GENERATE_GIF
+
+#ifdef GENERATE_GIF
+#include "gifenc.h"
+#endif
+
+typedef struct {
+    uint8_t *items;
+    size_t count;
+    size_t capacity;
+} GifPixels;
+
 typedef struct {
     uint32_t *pixels;
     int width, height, stride;
@@ -121,6 +133,11 @@ static void grad_to_dp(Mat grad, Mat dp)
     }
 }
 
+static long dist2(long r1, long r2, long g1, long g2, long b1, long b2)
+{
+    return (r1 - r2) * (r1 - r2) + (g1 - g2) * (g1 - g2) + (b1 - b2) * (b1 - b2);
+}
+
 static void usage(const char *program)
 {
     fprintf(stderr, "Usage: %s <input> <output>\n", program);
@@ -175,6 +192,119 @@ void markout_sobel_patches(Mat grad, int *seam)
     }
 }
 
+static void create_gif_palette(Img src, uint8_t *palette, int palette_size)
+{
+    // black - used for background
+    palette[0] = 0;
+    palette[1] = 0;
+    palette[2] = 0;
+
+    // red - used for seam
+    palette[3] = 255;
+    palette[4] = 0;
+    palette[5] = 0;
+
+    for (int i = 2; i < palette_size; i++) {
+        int h = rand() % src.height;
+        int w = rand() % src.width;
+
+        uint32_t pixel = IMG_AT(src, h, w);
+
+        palette[i * 3 + 0] = (pixel >> 0) & 0xFF;
+        palette[i * 3 + 1] = (pixel >> 8) & 0xFF;
+        palette[i * 3 + 2] = (pixel >> 16) & 0xFF;
+    }
+
+    GifPixels pixels[palette_size];
+
+    for (int i = 0; i < palette_size; i++) {
+        pixels[i].count = 0;
+        pixels[i].capacity = 0;
+        pixels[i].items = NULL;
+    }
+
+    // 10 is hard-coded number of iterations of K-Means
+    for (int i = 0; i < 10; i++) {
+        for (int y = 0; y < src.height; y++) {
+            for (int x = 0; x < src.width; x++) {
+                uint32_t pixel = IMG_AT(src, y, x);
+
+                int r = (pixel >> 0) & 0xFF;
+                int g = (pixel >> 8) & 0xFF;
+                int b = (pixel >> 16) & 0xFF;
+
+                int palette_idx = 0;
+                for (int j = 1; j < palette_size; j++) {
+                    if (dist2(r, palette[j * 3 + 0], g, palette[j * 3 + 1], b, palette[j * 3 + 2]) <
+                        dist2(r, palette[palette_idx * 3 + 0], g, palette[palette_idx * 3 + 1], b, palette[palette_idx * 3 + 2])) {
+                        palette_idx = j;
+                    }
+                }
+
+                uint8_t new_vals[3] = {r, g, b};
+                nob_da_append_many(pixels + palette_idx, new_vals, 3);
+            }
+        }
+
+        for (int j = 0; j < palette_size; j++) {
+            float r_sum = 0;
+            float g_sum = 0;
+            float b_sum = 0;
+
+            for (size_t k = 0; k < pixels[j].count; k += 3) {
+                r_sum += pixels[j].items[k + 0];
+                g_sum += pixels[j].items[k + 1];
+                b_sum += pixels[j].items[k + 2];
+            }
+
+            if (j != 0 && j != 1 && pixels[j].count != 0) {
+                palette[j * 3 + 0] = r_sum / (pixels[j].count / 3);
+                palette[j * 3 + 1] = g_sum / (pixels[j].count / 3);
+                palette[j * 3 + 2] = b_sum / (pixels[j].count / 3);
+            }
+
+            pixels[j].count = 0;
+        }
+    }
+
+    for (int i = 0; i < palette_size; i++) {
+        nob_da_free(pixels[i]);
+    }
+}
+
+static void add_frame(ge_GIF *gif, Img img, uint8_t *palette, int palette_size, int *seam)
+{
+    for (int y = 0; y < img.height; y++) {
+        for (int x = 0; x < img.width; x++) {
+            uint32_t pixel = IMG_AT(img, y, x);
+
+            int r = (pixel >> 0) & 0xFF;
+            int g = (pixel >> 8) & 0xFF;
+            int b = (pixel >> 16) & 0xFF;
+
+            int palette_idx = 0;
+            for (int i = 1; i < palette_size; i++) {
+                if (dist2(r, palette[i * 3 + 0], g, palette[i * 3 + 1], b, palette[i * 3 + 2]) <
+                    dist2(r, palette[palette_idx * 3 + 0], g, palette[palette_idx * 3 + 1], b, palette[palette_idx * 3 + 2])) {
+                    palette_idx = i;
+                }
+            }
+
+            gif->frame[y * img.stride + x] = palette_idx;
+        }
+
+        for (int x = img.width; x < img.stride; ++x) {
+            gif->frame[y * img.stride + x] = 0;
+        }
+    }
+
+    for (int y = 0; y < img.height; ++y) {
+        gif->frame[y * img.stride + seam[y]] = 1;
+    }
+
+    ge_add_frame(gif, 10);
+}
+
 int main(int argc, char **argv)
 {
     const char *program = nob_shift_args(&argc, &argv);
@@ -216,9 +346,29 @@ int main(int argc, char **argv)
     luminance(img, lum);
     sobel_filter(lum, grad);
 
+#ifdef GENERATE_GIF
+    int palette_size = 64;
+    uint8_t *palette = (uint8_t *)malloc(3 * palette_size * sizeof(uint8_t));
+    create_gif_palette(img, palette, palette_size);
+
+    ge_GIF *gif = ge_new_gif(
+        "images/seams.gif",
+        width_,
+        height_,
+        palette,
+        (int)ceil(log2(palette_size)),
+        -1,
+        0);
+#endif
+
     for (int i = 0; i < seams_to_remove; ++i) {
         grad_to_dp(grad, dp);
         compute_seam(dp, seam);
+
+#ifdef GENERATE_GIF
+        add_frame(gif, img, palette, palette_size, seam);
+#endif
+
         markout_sobel_patches(grad, seam);
 
         for (int cy = 0; cy < img.height; ++cy) {
@@ -242,6 +392,12 @@ int main(int argc, char **argv)
             }
         }
     }
+
+#ifdef GENERATE_GIF
+    ge_close_gif(gif);
+
+    free(palette);
+#endif
 
     if (!stbi_write_png(out_file_path, img.width, img.height, 4, img.pixels, img.stride*sizeof(uint32_t))) {
         fprintf(stderr, "ERROR: could not save file %s\n", out_file_path);

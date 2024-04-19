@@ -272,6 +272,7 @@ static void create_gif_palette(Img src, uint8_t *palette, int palette_size)
     }
 }
 
+#ifdef GENERATE_GIF
 static void add_frame(ge_GIF *gif, Img img, uint8_t *palette, int palette_size, int *seam)
 {
     for (int y = 0; y < img.height; y++) {
@@ -304,6 +305,7 @@ static void add_frame(ge_GIF *gif, Img img, uint8_t *palette, int palette_size, 
 
     ge_add_frame(gif, 10);
 }
+#endif
 
 int main(int argc, char **argv)
 {

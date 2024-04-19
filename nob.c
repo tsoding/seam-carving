@@ -37,6 +37,22 @@ bool rebuild_stb_if_needed(Nob_Cmd *cmd, const char *implementation, const char 
     }
 }
 
+bool rebuild_gifenc_if_needed(Nob_Cmd *cmd, const char *input, const char *output)
+{
+    if (nob_needs_rebuild1(output, input)) {
+        cmd->count = 0;
+        cc(cmd);
+        nob_cmd_append(cmd, "-x", "c");
+        nob_cmd_append(cmd, "-c");
+        nob_cmd_append(cmd, "-o", output);
+        nob_cmd_append(cmd, input);
+        return nob_cmd_run_sync(*cmd);
+    } else {
+        nob_log(NOB_INFO, "%s is up to date", output);
+        return true;
+    }
+}
+
 int main(int argc, char **argv)
 {
     NOB_GO_REBUILD_URSELF(argc, argv);
@@ -49,6 +65,7 @@ int main(int argc, char **argv)
     if (!nob_mkdir_if_not_exists("./build/")) return 1;
     if (!rebuild_stb_if_needed(&cmd, "-DSTB_IMAGE_IMPLEMENTATION", "stb_image.h", "./build/stb_image.o")) return 1;
     if (!rebuild_stb_if_needed(&cmd, "-DSTB_IMAGE_WRITE_IMPLEMENTATION", "stb_image_write.h", "./build/stb_image_write.o")) return 1;
+    if (!rebuild_gifenc_if_needed(&cmd, "gifenc.c", "./build/gifenc.o")) return 1;
 
     const char *main_input = "main.c";
     const char *main_output = "./build/main";
@@ -58,6 +75,7 @@ int main(int argc, char **argv)
     nob_cmd_append(&cmd, main_input);
     nob_cmd_append(&cmd, "./build/stb_image.o");
     nob_cmd_append(&cmd, "./build/stb_image_write.o");
+    nob_cmd_append(&cmd, "./build/gifenc.o");
     nob_cmd_append(&cmd, "-lm");
     if (!nob_cmd_run_sync(cmd)) return 1;
 
